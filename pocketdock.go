@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	"io"
+	// "io"
 	"path/filepath"
 	"strconv"
 )
@@ -36,7 +36,7 @@ func run(){
 		panic(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("1000000"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte("10000"), 0700); err != nil {
 		panic(err)
 	}
 
@@ -51,16 +51,12 @@ func run(){
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
 	}
 
-	r, w, _ := os.Pipe()
-	cmd.ExtraFiles = []*os.File{w}
-
 	if err := cmd.Start(); err != nil {
 		panic(err)
 	}
-	w.Close()
 
-	pidBytes, _ := io.ReadAll(r)
-	childPID := string(pidBytes)
+	childPID := strconv.Itoa(cmd.Process.Pid)
+	fmt.Printf("CHILD PID -> %v\n",childPID)
 
 	if err := os.WriteFile(filepath.Join(containerGroupPath, "cgroup.procs"), []byte(childPID), 0700); err != nil {
 	    panic(err)
@@ -70,13 +66,7 @@ func run(){
 }
 
 func child(){
-	fmt.Printf("Child: Running command %v -> PID = %d\n", os.Args[2:], os.Getpid())
-
-	pipe := os.NewFile(3, "pipe")
-	if _, err := pipe.WriteString(strconv.Itoa(os.Getpid())); err != nil{
-		panic(err)
-	}
-	pipe.Close()
+	fmt.Printf("Child: Running command %v\n", os.Args[2:])
 
 	syscall.Mount("","/","",syscall.MS_REC|syscall.MS_PRIVATE,"")
 
