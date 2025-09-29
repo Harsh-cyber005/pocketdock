@@ -36,7 +36,7 @@ func run(){
 		panic(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte("10000"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("100000"), 0700); err != nil {
 		panic(err)
 	}
 
