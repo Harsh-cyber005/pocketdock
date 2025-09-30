@@ -36,19 +36,30 @@ func run(){
 		panic(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("100000"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
 		panic(err)
 	}
 
+	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
+		panic(err)
+	}
+
+	r, w, _ := os.Pipe()
+	defer r.Close()
+	defer w.Close()
+	
 	args := append([]string{"child"}, os.Args[2:]...)
 	cmd := exec.Command("/proc/self/exe", args...)
+
+	cmd.ExtraFiles = []*os.File{r}
+	cmd.Env = append(os.Environ(), "START_FD=3")
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWCGROUP,
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -59,14 +70,25 @@ func run(){
 	fmt.Printf("CHILD PID -> %v\n",childPID)
 
 	if err := os.WriteFile(filepath.Join(containerGroupPath, "cgroup.procs"), []byte(childPID), 0700); err != nil {
+		fmt.Println("Error -> ",err)
 	    panic(err)
 	}
+
+	w.Write([]byte{1})
+	w.Close()
 
 	cmd.Wait()
 }
 
 func child(){
 	fmt.Printf("Child: Running command %v\n", os.Args[2:])
+
+	if fdStr := os.Getenv("START_FD"); fdStr != "" {
+		f := os.NewFile(uintptr(3), "start")
+		b := []byte{0}
+		_, _ = f.Read(b)
+		_ = f.Close()
+	}
 
 	syscall.Mount("","/","",syscall.MS_REC|syscall.MS_PRIVATE,"")
 
