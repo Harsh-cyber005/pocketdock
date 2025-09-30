@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	// "io"
+	"flag"
 	"path/filepath"
 	"strconv"
 )
@@ -24,6 +24,14 @@ func main() {
 func run(){
 	fmt.Printf("MANAGER : Running %v as PID %d\n", os.Args[2:], os.Getpid())
 
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+
+	mem := flag.CommandLine.Int("memory",100,"Memory limit in MB")
+	cpu := flag.CommandLine.Int("cpu",512,"CPU shares (relative weight)")
+	flag.CommandLine.Parse(os.Args[2:])
+
+	userCmd := flag.CommandLine.Args()
+	
 	cgroupPath := "/sys/fs/cgroup/pocketdock"
 	containerGroupPath := filepath.Join(cgroupPath, "container1")
 
@@ -36,29 +44,44 @@ func run(){
 		panic(err)
 	}
 
-//  This was a mistake to set limits in the leaf node
-// 	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
-// 		panic(err)
-// 	}
-// 
-// 	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
-// 		panic(err)
-// 	}
+	//This was a mistake to set limits in the leaf node
+	//if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
+	//	panic(err)
+	//}
+	//
+	//if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
+	//	panic(err)
+	//}
 
-	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
+	memLimit := strconv.Itoa(*mem*1024*1024)
+	cpuLimit := strconv.Itoa(*cpu)
+
+	if *cpu>512 {
+		cpuLimit = "512"
+	}
+
+	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte(memLimit), 0700); err != nil {
 		panic(err)
     }
 
+    if err := os.WriteFile(filepath.Join(cgroupPath, "cpu.weight"), []byte(cpuLimit), 0700); err != nil {
+        panic(err)
+    }
+
 	// optional to make the swap memory limit to 0
-    // if err := os.WriteFile(filepath.Join(cgroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
-    //     panic(err)
-    // }
+    if err := os.WriteFile(filepath.Join(cgroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
+        panic(err)
+    }
 
 	r, w, _ := os.Pipe()
 	defer r.Close()
 	defer w.Close()
+
+	fmt.Println(userCmd)
 	
-	args := append([]string{"child"}, os.Args[2:]...)
+	args := append([]string{"child"}, userCmd...)
+
+	fmt.Println(args)
 	cmd := exec.Command("/proc/self/exe", args...)
 
 	cmd.ExtraFiles = []*os.File{r}
