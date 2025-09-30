@@ -36,13 +36,21 @@ func run(){
 		panic(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("1048576"), 0700); err != nil {
 		panic(err)
 	}
 
 	if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
 		panic(err)
 	}
+
+	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte("1048576"), 0700); err != nil {
+		panic(err)
+    }
+
+    if err := os.WriteFile(filepath.Join(cgroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
+        panic(err)
+    }
 
 	r, w, _ := os.Pipe()
 	defer r.Close()
