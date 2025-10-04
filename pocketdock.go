@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"encoding/json"
+	"strings"
 )
 
 type Runtime struct {
@@ -74,6 +75,7 @@ func run(){
 
 	mem := flag.CommandLine.Int("memory",100,"Memory limit in MB")
 	cpu := flag.CommandLine.Int("cpu",512,"CPU shares (relative weight)")
+	// ports := flag.String("p", "", "Port mapping hostPort:containerPort")
 	flag.CommandLine.Parse(os.Args[2:])
 
 	userCmd := flag.CommandLine.Args()
@@ -88,6 +90,9 @@ func run(){
 		exec.Command("ip", "link", "set", bridgeName, "up").Run()
 		exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
 		exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/24", "!", "-o", bridgeName, "-j", "MASQUERADE").Run()
+
+		exec.Command("iptables", "-A", "FORWARD", "-i", bridgeName, "-o", "enX0", "-j", "ACCEPT").Run()
+		exec.Command("iptables", "-A", "FORWARD", "-i", "enX0", "-o", bridgeName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT").Run()
 	}
 
 	var runtime Runtime
@@ -125,6 +130,7 @@ func run(){
 
 	memLimit := strconv.Itoa(*mem*1024*1024)
 	cpuLimit := strconv.Itoa(*cpu)
+	// mappings := strings.Split(*ports, ",")
 
 	if *cpu>512 {
 		cpuLimit = "512"
@@ -169,6 +175,18 @@ func run(){
  		fmt.Println("Error in activating ", vethHost, " -> ", err)
  	}
 	containerIP := fmt.Sprintf("172.20.0.%d/24", runtime.ContainerCount+2)
+// 	containerIPNM := fmt.Sprintf("172.20.0.%d", runtime.ContainerCount+2)
+// 	for i := 0;i < len(mappings);i++ {
+// 		m := strings.Split(mappings[i], ":")
+// 		hm := m[0]
+// 		cm := m[1]
+// 		dnatRule := fmt.Sprintf("%s:%s", containerIPNM, cm)
+// 		exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
+// 		defer exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
+// 
+// 		exec.Command("iptables", "-t", "nat", "-A", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
+// 	    defer exec.Command("iptables", "-t", "nat", "-D", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
+// 	}
 	cmd.Env = append(os.Environ(),
 		"START_FD=3",
 		fmt.Sprintf("POCKETDOCK_VETH=%s", vethContainer),
@@ -224,7 +242,7 @@ func child(){
 	vethName := os.Getenv("POCKETDOCK_VETH")
 	containerIP := os.Getenv("POCKETDOCK_IP")
 
-	fmt.Println("iVethName -> ",vethName)
+	// fmt.Println("iVethName -> ",vethName)
 	
 	gatewayIP := "172.20.0.1"
 
@@ -242,7 +260,7 @@ func child(){
 	}
 
 
-	syscall.Mount("","/","",syscall.MS_REC|syscall.MS_PRIVATE,"")
+	syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, "")
 
 	syscall.Sethostname([]byte("container"))
 
