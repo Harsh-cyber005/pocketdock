@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"encoding/json"
-	"strings"
+	// "strings"
 )
 
 type Runtime struct {
@@ -119,15 +119,6 @@ func run(){
 		panic(err)
 	}
 
-	//This was a mistake to set limits in the leaf node
-	//if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.max"), []byte("104857600"), 0700); err != nil {
-	//	panic(err)
-	//}
-	//
-	//if err := os.WriteFile(filepath.Join(containerGroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
-	//	panic(err)
-	//}
-
 	memLimit := strconv.Itoa(*mem*1024*1024)
 	cpuLimit := strconv.Itoa(*cpu)
 	// mappings := strings.Split(*ports, ",")
@@ -144,7 +135,6 @@ func run(){
         panic(err)
     }
 
-	// optional to make the swap memory limit to 0
     if err := os.WriteFile(filepath.Join(cgroupPath, "memory.swap.max"), []byte("0"), 0700); err != nil {
         panic(err)
     }
@@ -158,7 +148,6 @@ func run(){
 	cmd := exec.Command("/proc/self/exe", args...)
 
 	cmd.ExtraFiles = []*os.File{r}
-	// cmd.Env = append(os.Environ(), "START_FD=3")
 	pid := os.Getpid()
 
 	vethHost := fmt.Sprintf("veth0%d", pid)
@@ -175,6 +164,9 @@ func run(){
  		fmt.Println("Error in activating ", vethHost, " -> ", err)
  	}
 	containerIP := fmt.Sprintf("172.20.0.%d/24", runtime.ContainerCount+2)
+
+	// these were the DNAT rules:
+	
 // 	containerIPNM := fmt.Sprintf("172.20.0.%d", runtime.ContainerCount+2)
 // 	for i := 0;i < len(mappings);i++ {
 // 		m := strings.Split(mappings[i], ":")
@@ -187,6 +179,8 @@ func run(){
 // 		exec.Command("iptables", "-t", "nat", "-A", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
 // 	    defer exec.Command("iptables", "-t", "nat", "-D", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
 // 	}
+
+
 	cmd.Env = append(os.Environ(),
 		"START_FD=3",
 		fmt.Sprintf("POCKETDOCK_VETH=%s", vethContainer),
@@ -237,12 +231,8 @@ func child(){
 		_ = f.Close()
 	}
 
-	// fmt.Println(os.Environ())
-
 	vethName := os.Getenv("POCKETDOCK_VETH")
 	containerIP := os.Getenv("POCKETDOCK_IP")
-
-	// fmt.Println("iVethName -> ",vethName)
 	
 	gatewayIP := "172.20.0.1"
 
@@ -286,3 +276,7 @@ func child(){
 
 	syscall.Unmount("proc", 0)
 }
+
+
+
+
