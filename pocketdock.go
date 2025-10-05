@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"encoding/json"
-	// "strings"
+	"strings"
 )
 
 type Runtime struct {
@@ -75,7 +75,7 @@ func run(){
 
 	mem := flag.CommandLine.Int("memory",100,"Memory limit in MB")
 	cpu := flag.CommandLine.Int("cpu",512,"CPU shares (relative weight)")
-	// ports := flag.String("p", "", "Port mapping hostPort:containerPort")
+	ports := flag.String("p", "", "Port mapping hostPort:containerPort")
 	flag.CommandLine.Parse(os.Args[2:])
 
 	userCmd := flag.CommandLine.Args()
@@ -90,9 +90,7 @@ func run(){
 		exec.Command("ip", "link", "set", bridgeName, "up").Run()
 		exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
 		exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/24", "!", "-o", bridgeName, "-j", "MASQUERADE").Run()
-
-		exec.Command("iptables", "-A", "FORWARD", "-i", bridgeName, "-o", "enX0", "-j", "ACCEPT").Run()
-		exec.Command("iptables", "-A", "FORWARD", "-i", "enX0", "-o", bridgeName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT").Run()
+		defer exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", "172.20.0.0/24", "!", "-o", bridgeName, "-j", "MASQUERADE").Run()
 	}
 
 	var runtime Runtime
@@ -121,7 +119,7 @@ func run(){
 
 	memLimit := strconv.Itoa(*mem*1024*1024)
 	cpuLimit := strconv.Itoa(*cpu)
-	// mappings := strings.Split(*ports, ",")
+	mappings := strings.Split(*ports, ",")
 
 	if *cpu>512 {
 		cpuLimit = "512"
@@ -167,19 +165,44 @@ func run(){
 
 	// these were the DNAT rules:
 	
-// 	containerIPNM := fmt.Sprintf("172.20.0.%d", runtime.ContainerCount+2)
-// 	for i := 0;i < len(mappings);i++ {
-// 		m := strings.Split(mappings[i], ":")
-// 		hm := m[0]
-// 		cm := m[1]
-// 		dnatRule := fmt.Sprintf("%s:%s", containerIPNM, cm)
-// 		exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
-// 		defer exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
-// 
-// 		exec.Command("iptables", "-t", "nat", "-A", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
-// 	    defer exec.Command("iptables", "-t", "nat", "-D", "OUTPUT","-d","127.0.0.1", "-p", "tcp", "--dport", hm, "-j", "DNAT", "--to-destination", dnatRule).Run()
-// 	}
+	containerIPNM := fmt.Sprintf("172.20.0.%d", runtime.ContainerCount+2)
 
+	exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+	for _, mapping := range mappings {
+	    if mapping == "" {
+	        continue
+	    }
+	    parts := strings.Split(mapping, ":")
+	    if len(parts) != 2 {
+	        fmt.Println("Invalid port mapping:", mapping)
+	        continue
+	    }
+	    hostPort := parts[0]
+	    containerPort := parts[1]
+	    dnatTarget := fmt.Sprintf("%s:%s", containerIPNM, containerPort)
+	
+	    exec.Command("iptables", "-t", "nat", "-A", "PREROUTING",
+	        "-p", "tcp", "--dport", hostPort,
+	        "-j", "DNAT", "--to-destination", dnatTarget).Run()
+	    defer exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
+	        "-p", "tcp", "--dport", hostPort,
+	        "-j", "DNAT", "--to-destination", dnatTarget).Run()
+	
+	    exec.Command("iptables", "-t", "nat", "-A", "OUTPUT",
+	        "-p", "tcp", "-d", "127.0.0.1", "--dport", hostPort,
+	        "-j", "DNAT", "--to-destination", dnatTarget).Run()
+	    defer exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
+	        "-p", "tcp", "-d", "127.0.0.1", "--dport", hostPort,
+	        "-j", "DNAT", "--to-destination", dnatTarget).Run()
+
+		exec.Command("iptables", "-P", "FORWARD", "ACCEPT").Run()
+	    exec.Command("iptables", "-A", "FORWARD",
+	        "-p", "tcp", "-d", containerIPNM, "--dport", containerPort,
+	        "-j", "ACCEPT").Run()
+	    defer exec.Command("iptables", "-D", "FORWARD",
+	        "-p", "tcp", "-d", containerIPNM, "--dport", containerPort,
+	        "-j", "ACCEPT").Run()
+	}
 
 	cmd.Env = append(os.Environ(),
 		"START_FD=3",
@@ -276,7 +299,3 @@ func child(){
 
 	syscall.Unmount("proc", 0)
 }
-
-
-
-
