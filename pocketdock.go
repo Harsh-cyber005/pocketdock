@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"encoding/json"
 	"strings"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 )
 
 type Runtime struct {
@@ -66,6 +69,20 @@ func main() {
 	default:
 		panic("Invalid Command")
 	}	
+}
+
+func getFileHash(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func run(){
@@ -204,10 +221,46 @@ func run(){
 	        "-j", "ACCEPT").Run()
 	}
 
+	imagePath := "/home/ubuntu/ubuntu-base.tar.gz"
+	imageHash, err := getFileHash(imagePath)
+	if err != nil {
+		panic("could not hash image file")
+	}
+
+	imageStorePath := "/var/lib/pocketdock/images"
+	sharedLowerDir := filepath.Join(imageStorePath, imageHash)
+
+	if _, err := os.Stat(sharedLowerDir); os.IsNotExist(err) {
+		fmt.Println("Image not found in store, unpacking...")
+		if err := os.MkdirAll(sharedLowerDir, 0755); err != nil {
+			panic(err)
+		}
+		if err := exec.Command("tar", "-xzf", imagePath, "-C", sharedLowerDir).Run(); err != nil {
+			panic(err)
+		}
+	}
+
+	tempDir, err := os.MkdirTemp("", "pocketdock-")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	upperDir := filepath.Join(tempDir, "upper")
+	workDir := filepath.Join(tempDir, "work")
+	mergedDir := filepath.Join(tempDir, "merged")
+
+	os.MkdirAll(upperDir, 0755)
+	os.MkdirAll(workDir, 0755)
+	os.MkdirAll(mergedDir, 0755)
+	defer syscall.Unmount(mergedDir,0)
+	
 	cmd.Env = append(os.Environ(),
 		"START_FD=3",
 		fmt.Sprintf("POCKETDOCK_VETH=%s", vethContainer),
 		fmt.Sprintf("POCKETDOCK_IP=%s", containerIP),
+		fmt.Sprintf("POCKETDOCK_MERGED_DIR=%s", mergedDir),
+		fmt.Sprintf("POCKETDOCK_LOWER_DIR=%s", sharedLowerDir),
 	)
 
 	cmd.Stdin = os.Stdin
@@ -256,6 +309,8 @@ func child(){
 
 	vethName := os.Getenv("POCKETDOCK_VETH")
 	containerIP := os.Getenv("POCKETDOCK_IP")
+	mergedDir := os.Getenv("POCKETDOCK_MERGED_DIR")
+	lowerDir := os.Getenv("POCKETDOCK_LOWER_DIR")
 	
 	gatewayIP := "172.20.0.1"
 
@@ -272,13 +327,20 @@ func child(){
 		fmt.Println("error in making default gate -> ",err)
 	}
 
+	upperDir := filepath.Join(filepath.Dir(mergedDir), "upper")
+	workDir := filepath.Join(filepath.Dir(mergedDir), "work")
+
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
+	
+	if err := syscall.Mount("overlay", mergedDir, "overlay", 0, opts); err != nil {
+		panic(err)
+	}
 
 	syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, "")
 
 	syscall.Sethostname([]byte("container"))
 
-	jailDir := "/home/ubuntu/my-jail"
-	syscall.Chroot(jailDir)
+	syscall.Chroot(mergedDir)
 
 	os.Chdir("/")
 
