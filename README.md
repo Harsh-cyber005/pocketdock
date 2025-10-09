@@ -1,6 +1,5 @@
 ```bash
-sudo debootstrap --include=iproute2,iputils-ping,net-tools,curl,vim,procps \
-  noble /home/ubuntu/rootfs http://archive.ubuntu.com/ubuntu/
+curl -o /home/ubuntu/ubuntu-base.tar.gz https://harshmax-vercel-outputs.s3.ap-south-1.amazonaws.com/ubuntu-base.tar.gz
 ```
 
 ```bash
